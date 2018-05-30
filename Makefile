@@ -11,5 +11,6 @@ mkfs-simplefs_SOURCES:
 	mkfs-simplefs.c simple.h
 
 clean:
-	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
-	rm mkfs-simplefs
+	#make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+	#rm mkfs-simplefs
+	rm -rf .[!.]* modules.* Module.* simplefs.mod.* simplefs.o simple.o
