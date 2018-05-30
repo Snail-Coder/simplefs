@@ -441,11 +441,164 @@ static int simplefs_create(struct inode *dir, struct dentry *dentry,
 static int simplefs_mkdir(struct inode *dir, struct dentry *dentry,
 			  umode_t mode);
 
+
+static int simplefs_unlink (struct inode *dir, struct dentry *);
+static int simplefs_rmdir (struct inode *dir, struct dentry *);
+
+
 static struct inode_operations simplefs_inode_ops = {
 	.create = simplefs_create,
 	.lookup = simplefs_lookup,
 	.mkdir = simplefs_mkdir,
+	.unlink = simplefs_unlink,
+	.rmdir = simplefs_rmdir,
 };
+
+static int del_parent_dir_record(struct inode *dir,  struct dentry *dentry)
+{
+	struct super_block *sb;
+	struct simplefs_inode *dir_inode;
+	struct buffer_head *bh;
+	struct simplefs_dir_record *dir_contents_datablock;
+	struct simplefs_dir_record *buffer;
+	int i;
+
+	sb = dir->i_sb;
+	dir_inode = SIMPLEFS_INODE(dir);
+
+	bh = sb_bread(sb, dir_inode->data_block_number);
+	BUG_ON(!bh);
+
+	dir_contents_datablock = (struct simplefs_dir_record *)bh->b_data;
+	buffer = (struct simplefs_dir_record *)bh->b_data;
+	for(i = 0; i < dir_inode->dir_children_count; i++)
+	{
+		if (strcmp(dir_contents_datablock->filename, dentry->d_name.name))
+		{
+			memcpy(buffer, dir_contents_datablock, sizeof(*dir_contents_datablock));
+			buffer++;
+		}
+		dir_contents_datablock++;
+	}
+
+	mark_buffer_dirty(bh);
+	sync_dirty_buffer(bh);
+	brelse(bh);
+
+	return 0;
+}
+
+static int update_inodestore_block(struct inode *dir,  struct dentry *dentry)
+{
+	struct buffer_head *bh;
+	struct super_block *sb;
+	struct simplefs_inode *inode_iterator;
+	struct simplefs_inode *buffer;
+	struct simplefs_inode *dir_inode;
+	struct simplefs_inode *dentry_inode;
+	int  ret, i;
+	uint64_t count;
+
+	sb = dir->i_sb;
+	dir_inode = SIMPLEFS_INODE(dir);
+	dentry_inode = SIMPLEFS_INODE(dentry->d_inode);
+
+	bh = sb_bread(sb, SIMPLEFS_INODESTORE_BLOCK_NUMBER);
+	BUG_ON(!bh);
+
+	inode_iterator = (struct simplefs_inode *)bh->b_data;
+	buffer = (struct simplefs_inode *)bh->b_data;
+
+	ret = simplefs_sb_get_objects_count(sb, &count);
+	if (ret < 0) {
+		//mutex_unlock(&simplefs_directory_children_update_lock);
+		return ret;
+	}
+
+	for(i = 0; i < count; i++)
+	{
+		// this inode should be deleted, we just skip it to avoid copy to buffer
+		if (dentry_inode->inode_no == inode_iterator->inode_no)
+		{
+			inode_iterator++;
+			continue;
+		}
+
+		// this is the parent inode, we need to sub it's dir_children_count
+		if (inode_iterator->inode_no == dir_inode->inode_no)
+		{
+			inode_iterator->dir_children_count--;
+		}
+		memcpy(buffer, inode_iterator, sizeof(*inode_iterator));
+		inode_iterator++;
+		buffer++;
+	}
+
+	mark_buffer_dirty(bh);
+	sync_dirty_buffer(bh);
+	brelse(bh);
+
+	return 0;
+}
+
+static int update_super_block(struct dentry *dentry)
+{
+	struct buffer_head *bh;
+	struct simplefs_super_block *sb;
+	struct simplefs_inode *inode;
+
+	inode = SIMPLEFS_INODE(dentry->d_inode);
+
+	bh = sb_bread(dentry->d_inode->i_sb, SIMPLEFS_SUPERBLOCK_BLOCK_NUMBER);
+	BUG_ON(!bh);
+
+	sb = (struct simplefs_super_block *)bh->b_data;
+	sb->free_blocks &= ~(1 << inode->inode_no);
+	sb->inodes_count--;
+
+	mark_buffer_dirty(bh);
+	sync_dirty_buffer(bh);
+	brelse(bh);
+
+	return 0;
+}
+
+static int simplefs_unlink (struct inode *dir, struct dentry *dentry)
+{
+	int ret;
+
+	printk(KERN_INFO "simplefs_unlink called\n");
+
+	//1st delete dir_record for parent
+	ret = del_parent_dir_record(dir, dentry);
+	if(ret < 0)
+	{
+		printk(KERN_INFO "del_parent_dir_record error\n");
+		//return ret;
+	}
+
+	// 2nd update inode store block
+	ret = update_inodestore_block(dir, dentry);
+	if(ret < 0)
+	{
+		printk(KERN_INFO "update_inodestore_block error\n");
+		//return ret;
+	}
+
+	// 3nd update super block
+	ret = update_super_block(dentry);
+
+	d_drop(dentry);
+
+	return 0;
+}
+
+static int simplefs_rmdir (struct inode *dir, struct dentry *dentry)
+{
+
+	printk(KERN_INFO "simplefs_rmdir called\n");
+	return 0;
+}
 
 static int simplefs_create_fs_object(struct inode *dir, struct dentry *dentry,
 				     umode_t mode)
