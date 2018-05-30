@@ -363,12 +363,12 @@ ssize_t simplefs_write(struct file * filp, const char __user * buf, size_t len,
 	char *buffer;
 
 	int retval;
-
+/*
 	retval = generic_write_checks(filp, ppos, &len, 0);
 	if (retval) {
 		return retval;
 	}
-
+*/
 	inode = filp->f_path.dentry->d_inode;
 	sfs_inode = SIMPLEFS_INODE(inode);
 	sb = inode->i_sb;
@@ -494,7 +494,7 @@ static int simplefs_create_fs_object(struct inode *dir, struct dentry *dentry,
 
 	inode->i_sb = sb;
 	inode->i_op = &simplefs_inode_ops;
-	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
+	inode->i_atime = inode->i_mtime = inode->i_ctime = current_time(inode);//CURRENT_TIME
 	inode->i_ino = (count + SIMPLEFS_START_INO - SIMPLEFS_RESERVED_INODES + 1);
 
 	sfs_inode = kmem_cache_alloc(sfs_inode_cachep, GFP_KERNEL);
@@ -627,7 +627,7 @@ struct dentry *simplefs_lookup(struct inode *parent_inode,
 
 			/* FIXME: We should store these times to disk and retrieve them */
 			inode->i_atime = inode->i_mtime = inode->i_ctime =
-			    CURRENT_TIME;
+			    current_time(inode);
 
 			inode->i_private = sfs_inode;
 
@@ -710,7 +710,7 @@ int simplefs_fill_super(struct super_block *sb, void *data, int silent)
 	root_inode->i_op = &simplefs_inode_ops;
 	root_inode->i_fop = &simplefs_dir_operations;
 	root_inode->i_atime = root_inode->i_mtime = root_inode->i_ctime =
-	    CURRENT_TIME;
+	    current_time(root_inode);
 
 	root_inode->i_private =
 	    simplefs_get_inode(sb, SIMPLEFS_ROOTDIR_INODE_NUMBER);
